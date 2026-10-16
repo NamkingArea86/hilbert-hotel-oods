@@ -8,31 +8,14 @@ import numpy as np
 import csv
 from pathlib import Path
 
-# ===== นำเข้าจากส่วนกลาง =====
+from data_generator import generate_guests, TABLE_A_K, TABLE_B_N, TABLE_C_V, SALT_LIST
+
 from common import hash_to_64bit
 
-# จะนำเข้าจากเพื่อนเมื่อพร้อม
-# from hotel_system import HotelSystem
+from hotel_system import HotelSystem
 
 # ==================================================
-# 1. ฟังก์ชันสร้างข้อมูลทดลอง
-# ==================================================
-def generate_guests(K: int, salt: int = 0):
-    """
-    สร้างรายการคู่ (c, s) จำนวน K ชุด
-    salt เปลี่ยนค่า = ชุดข้อมูลใหม่ ไม่ซ้ำเดิม
-    """
-    rng = np.random.default_rng(seed=salt)
-    guests = []
-    for _ in range(K):
-        c = int(rng.integers(1, 1_000_000))
-        s = int(rng.integers(1, 1_000_000))
-        guests.append((c, s))
-    return guests
-
-
-# ==================================================
-# 2. วิธีที่ 2: Hash Mod N (เขียนเสร็จแล้ว ไม่ต้องรอใคร)
+# Hash Mod N 
 # ==================================================
 def hash_mod_N(c: int, s: int, node_list: list[str]) -> str:
     """
@@ -46,32 +29,62 @@ def hash_mod_N(c: int, s: int, node_list: list[str]) -> str:
 
 
 # ==================================================
-# 3. รันทดลอง Consistent Hashing (รอเชื่อมต่อกับ HotelSystem)
+# รันทดลอง Consistent Hashing (รอเชื่อมต่อกับ HotelSystem)
 # ==================================================
 def run_consistent_hashing(guests, initial_nodes, virtual_per_node):
     """
-    ทดสอบระบบ Consistent Hashing
-    วัดเวลา, หน่วยความจำ, อัตราการย้ายแขก
+    ทดสอบระบบ Consistent Hashing โดยใช้ HotelSystem จริง
     """
-    # TODO: นำเข้า HotelSystem จากคนที่ 1-3
-    # system = HotelSystem(initial_nodes, virtual_per_node)
+    tracemalloc.start()
+    t_start = time.perf_counter()
+
+    # 1. สร้างระบบ
+    system = HotelSystem(initial_nodes, virtual_per_node)
     
-    # === ชั่วคราว ===
-    print(f"[Consistent] K={len(guests)}, N={len(initial_nodes)}, V={virtual_per_node} — รอเชื่อม HotelSystem")
-    
+    # 2. เพิ่มแขกทั้งหมด — ข้ามรายการที่ซ้ำ
+    for c, s in guests:
+        if (c, s) not in system.guest_manager.guests:
+            first_node = system.hash_ring.get_building_for_guest(c, s)
+            system.guest_manager.add_guest(c, s, first_node)
+
+    # 3. เพิ่มอาคารใหม่
+    new_node = f"Building_{len(initial_nodes)+1}"
+    add_report = system.add_building(new_node)
+
+    # 4. ลบอาคารแรก
+    remove_node = initial_nodes[0]
+    remove_report = system.remove_building(remove_node)
+
+    t_end = time.perf_counter()
+    _, peak_mem = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    # 5. คำนวณสถิติความสมดุล
+    count = {}
+    for g in system.guest_manager.guests.values():
+        count[g.node_id] = count.get(g.node_id, 0) + 1
+    vals = list(count.values()) or [0]
+    mean = sum(vals) / len(vals)
+    var = sum((x - mean)**2 for x in vals) / len(vals)
+    cv = (var**0.5 / mean) if mean > 0 else 0
+
     return {
-        "time_sec": None,
-        "peak_mem_MiB": None,
-        "add_moved_count": None,
-        "add_moved_rate": None,
-        "remove_moved_count": None,
-        "remove_moved_rate": None,
-        "load_stats": None
+        "time_sec": t_end - t_start,
+        "peak_mem_MiB": peak_mem / (1024 * 1024),
+        "add_moved_count": add_report.moved_count,
+        "add_moved_rate": (add_report.moved_rate_percentage or 0) / 100,
+        "remove_moved_count": remove_report.moved_count,
+        "remove_moved_rate": (remove_report.moved_rate_percentage or 0) / 100,
+        "load_stats": {
+            "mean": round(mean, 2),
+            "std": round(var**0.5, 2),
+            "cv": round(cv, 4)
+        }
     }
 
 
 # ==================================================
-# 4. รันทดลอง Hash Mod N (ทำเสร็จแล้ว)
+# รันทดลอง Hash Mod N 
 # ==================================================
 def run_hash_mod_N(guests, initial_nodes):
     """
@@ -118,7 +131,7 @@ def run_hash_mod_N(guests, initial_nodes):
 
 
 # ==================================================
-# 5. คำนวณค่าสถิติ
+# คำนวณค่าสถิติ
 # ==================================================
 def median(values):
     """ค่ามัธยฐาน — ใช้แทนค่าเฉลี่ยเพื่อลดความผันแปร"""
@@ -126,7 +139,7 @@ def median(values):
 
 
 # ==================================================
-# 6. ชุดทดลองหลัก — ตาราง A / B / C
+# ชุดทดลองหลัก — ตาราง A / B / C
 # ==================================================
 def run_all_experiments():
     """
@@ -161,6 +174,8 @@ def run_all_experiments():
 
             mod_time.append(r_mod["time_sec"])
             mod_rate.append(r_mod["add_moved_rate"] * 100)
+            cons_time.append(r_cons["time_sec"])
+            cons_rate.append(r_cons["add_moved_rate"] * 100) 
 
         results.append({
             "group": "A",
@@ -181,18 +196,23 @@ def run_all_experiments():
         nodes_B = [f"B{i+1}" for i in range(N)]
         mod_add = []
         mod_remove = []
+        cons_add = []
+        cons_remove = []
 
         for salt in SALT_LIST:
             guests = generate_guests(K_fixed, salt)
             r_mod = run_hash_mod_N(guests, nodes_B)
+            r_cons = run_consistent_hashing(guests, nodes_B, V_fixed) 
             mod_add.append(r_mod["add_moved_rate"] * 100)
             mod_remove.append(r_mod["remove_moved_rate"] * 100)
+            cons_add.append(r_cons["add_moved_rate"] * 100)     
+            cons_remove.append(r_cons["remove_moved_rate"] * 100) 
 
         results.append({
             "group": "B",
             "K": K_fixed, "N": N, "V": V_fixed,
-            "cons_rate_add": "รอ",
-            "cons_rate_remove": "รอ",
+            "cons_rate_add": median(cons_add),
+            "cons_rate_remove": median(cons_remove),
             "mod_rate_add": median(mod_add),
             "mod_rate_remove": median(mod_remove)
         })
@@ -205,17 +225,31 @@ def run_all_experiments():
     nodes_C = [f"B{i+1}" for i in range(N_fixed)]
 
     for V in TABLE_C_V:
+        cons_cv = []
+        cons_mem = []
+        for salt in SALT_LIST:
+            guests = generate_guests(K_fixed, salt)
+            r_cons = run_consistent_hashing(guests, nodes_C, V)  # ✅ เรียก
+            cons_cv.append(r_cons["load_stats"]["cv"])
+            cons_mem.append(r_cons["peak_mem_MiB"])
+
         results.append({
             "group": "C",
             "K": K_fixed, "N": N_fixed, "V": V,
-            "cv": "รอ",
-            "mem_MiB": "รอ"
+            "cv": median(cons_cv),
+            "mem_MiB": median(cons_mem)
         })
         print(f"  V={V} ✅")
 
     # ===== บันทึกผล =====
+    fieldnames = [
+        "group", "K", "N", "V",
+        "cons_time", "cons_rate_add", "cons_rate_remove",
+        "mod_time", "mod_rate_add", "mod_rate_remove",
+        "cv", "mem_MiB"
+    ]
     with open("experiment_results.csv", "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(results[0].keys()))
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(results)
 
@@ -224,7 +258,7 @@ def run_all_experiments():
 
 
 # ==================================================
-# 7. จุดเริ่มต้นรัน
+# จุดเริ่มต้นรัน
 # ==================================================
 if __name__ == "__main__":
     print("=" * 50)
@@ -234,6 +268,3 @@ if __name__ == "__main__":
     print()
 
     run_all_experiments()
-
-    print("\n📝 หมายเหตุ: ส่วน Consistent Hashing แสดง 'รอ' จนกว่าจะนำเข้า HotelSystem ได้")
-    print("   ส่วน Hash Mod N ทำงานสมบูรณ์แล้ว ✅")
