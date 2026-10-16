@@ -79,108 +79,106 @@ class HotelSystem:
     for building_id in initial_building_ids:
       self.hash_ring.add_building(building_id)
 
-    def add_building(self, building_id: str):
-      total_guests_before = self.guest_manager.total_guests
+  def add_building(self, building_id: str):
+    total_guests_before = self.guest_manager.total_guests
 
-      if not building_id or not isinstance(building_id, str) or not building_id.strip():
-        return MoveReport(action_type="ADD_BUILDING",target_building_id=str(building_id),total_guests_before=total_guests_before,moved_records=[],is_success=False,status_message="ปฏิเสธ: รหัสอาคารต้องเป็นข้อความที่ไม่ว่างเปล่า",)
+    if not building_id or not isinstance(building_id, str) or not building_id.strip():
+      return MoveReport(action_type="ADD_BUILDING",target_building_id=str(building_id),total_guests_before=total_guests_before,moved_records=[],is_success=False,status_message="ปฏิเสธ: รหัสอาคารต้องเป็นข้อความที่ไม่ว่างเปล่า",)
 
-      building_id = building_id.strip()
-      if building_id in self.hash_ring.buildings:
-        return MoveReport(action_type="ADD_BUILDING",target_building_id=building_id,total_guests_before=total_guests_before,moved_records=[],is_success=False,status_message=f"ปฏิเสธ: มีอาคาร '{building_id}' อยู่ในระบบแล้ว",)
+    building_id = building_id.strip()
+    if building_id in self.hash_ring.buildings:
+      return MoveReport(action_type="ADD_BUILDING",target_building_id=building_id,total_guests_before=total_guests_before,moved_records=[],is_success=False,status_message=f"ปฏิเสธ: มีอาคาร '{building_id}' อยู่ในระบบแล้ว",)
 
-      self.hash_ring.add_building(building_id)
+    self.hash_ring.add_building(building_id)
 
-      moved_records: List[MoveRecord] = []
-      for guest in list(self.guest_manager.guests.values()):
-        channel_id = guest.c
-        sequence_id = guest.s
+    moved_records: List[MoveRecord] = []
+    for guest in list(self.guest_manager.guests.values()):
+      channel_id = guest.c
+      sequence_id = guest.s
 
-        new_building_id = self.hash_ring.get_building_for_guest(channel_id, sequence_id)
+      new_building_id = self.hash_ring.get_building_for_guest(channel_id, sequence_id)
 
-        if new_building_id != guest.node_id:
-          assert new_building_id == building_id, ("ข้อผิดพลาดตรรกะ: แขกต้องย้ายเข้าอาคารใหม่เท่านั้น")
+      if new_building_id != guest.node_id:
+        assert new_building_id == building_id, ("ข้อผิดพลาดตรรกะ: แขกต้องย้ายเข้าอาคารใหม่เท่านั้น")
 
-          moved_records.append(
-              MoveRecord(channel_id=channel_id,sequence_id=sequence_id,old_building_id=guest.node_id,new_building_id=new_building_id,room_number=guest.room_no,)
-          )
-
-          self.guest_manager.update_guest_node(
-              channel_id, sequence_id, new_building_id
-          )
-
-      return MoveReport(action_type="ADD_BUILDING",target_building_id=building_id,total_guests_before=total_guests_before,moved_records=moved_records,is_success=True,status_message=f"เพิ่มอาคาร '{building_id}' สำเร็จ",)
-
-    def remove_building(self, building_id: str):
-      total_guests_before = self.guest_manager.total_guests
-
-      if not building_id or not isinstance(building_id, str) or not building_id.strip():
-        return MoveReport(action_type="REMOVE_BUILDING",target_building_id=str(building_id),total_guests_before=total_guests_before,moved_records=[],is_success=False,status_message="ปฏิเสธ: รหัสอาคารต้องเป็นข้อความที่ไม่ว่างเปล่า",
+        moved_records.append(
+            MoveRecord(channel_id=channel_id,sequence_id=sequence_id,old_building_id=guest.node_id,new_building_id=new_building_id,room_number=guest.room_no,)
         )
 
-      building_id = building_id.strip()
-      if building_id not in self.hash_ring.buildings:
-        return MoveReport(action_type="REMOVE_BUILDING",target_building_id=building_id,total_guests_before=total_guests_before,moved_records=[],is_success=False,status_message=f"ปฏิเสธ: ไม่พบอาคาร '{building_id}' ในระบบ",
+        self.guest_manager.update_guest_node(
+            channel_id, sequence_id, new_building_id
         )
 
-      if self.hash_ring.N == 1:
-        return MoveReport(action_type="REMOVE_BUILDING",target_building_id=building_id,total_guests_before=total_guests_before,moved_records=[],is_success=False,status_message=f"ปฏิเสธ: ไม่สามารถลบอาคาร '{building_id}' ได้ เนื่องจากเป็นอาคารสุดท้าย (N >= 1)",
-        )
+    return MoveReport(action_type="ADD_BUILDING",target_building_id=building_id,total_guests_before=total_guests_before,moved_records=moved_records,is_success=True,status_message=f"เพิ่มอาคาร '{building_id}' สำเร็จ",)
 
-      self.hash_ring.remove_building(building_id)
+  def remove_building(self, building_id: str):
+    total_guests_before = self.guest_manager.total_guests
 
-      moved_records: List[MoveRecord] = []
-      for guest in list(self.guest_manager.guests.values()):
-        channel_id = guest.c
-        sequence_id = guest.s
+    if not building_id or not isinstance(building_id, str) or not building_id.strip():
+      return MoveReport(action_type="REMOVE_BUILDING",target_building_id=str(building_id),total_guests_before=total_guests_before,moved_records=[],is_success=False,status_message="ปฏิเสธ: รหัสอาคารต้องเป็นข้อความที่ไม่ว่างเปล่า",
+      )
 
-        new_building_id = self.hash_ring.get_building_for_guest(channel_id, sequence_id)
+    building_id = building_id.strip()
+    if building_id not in self.hash_ring.buildings:
+      return MoveReport(action_type="REMOVE_BUILDING",target_building_id=building_id,total_guests_before=total_guests_before,moved_records=[],is_success=False,status_message=f"ปฏิเสธ: ไม่พบอาคาร '{building_id}' ในระบบ",
+      )
 
-        if new_building_id != guest.node_id:
-          assert guest.node_id == building_id, ("ข้อผิดพลาดตรรกะ: แขกในอาคารอื่นที่ไม่ใช่อาคารที่ลบต้องไม่ย้าย")
+    if self.hash_ring.N == 1:
+      return MoveReport(action_type="REMOVE_BUILDING",target_building_id=building_id,total_guests_before=total_guests_before,moved_records=[],is_success=False,status_message=f"ปฏิเสธ: ไม่สามารถลบอาคาร '{building_id}' ได้ เนื่องจากเป็นอาคารสุดท้าย (N >= 1)",
+      )
 
-          moved_records.append(MoveRecord(channel_id=channel_id,sequence_id=sequence_id,old_building_id=guest.node_id,new_building_id=new_building_id,room_number=guest.room_no,))
+    self.hash_ring.remove_building(building_id)
 
-          self.guest_manager.update_guest_node(channel_id, sequence_id, new_building_id)
+    moved_records: List[MoveRecord] = []
+    for guest in list(self.guest_manager.guests.values()):
+      channel_id = guest.c
+      sequence_id = guest.s
 
-      return MoveReport(action_type="REMOVE_BUILDING",target_building_id=building_id,total_guests_before=total_guests_before,moved_records=moved_records,is_success=True,status_message=f"ลบอาคาร '{building_id}' สำเร็จ",)
+      new_building_id = self.hash_ring.get_building_for_guest(channel_id, sequence_id)
 
-    def export_guests_to_csv(self, file_path: str):
-      sorted_guests = self.guest_manager.get_all_occupied_rooms_sorted()
+      if new_building_id != guest.node_id:
+        assert guest.node_id == building_id, ("ข้อผิดพลาดตรรกะ: แขกในอาคารอื่นที่ไม่ใช่อาคารที่ลบต้องไม่ย้าย")
 
-      try:
-          with open(file_path, mode="w", encoding="utf-8", newline="") as file:
-              writer = csv.writer(file)
-              writer.writerow(["channel_id", "sequence_id", "node_id", "room_no"])
-              for guest in sorted_guests:
-                writer.writerow(
-                  [guest.c, guest.s, guest.node_id, guest.room_no]
-                  )
-          print(
-              f"[CSV Exporter] ส่งออกข้อมูลแขก {len(sorted_guests)} รายการ ไปยัง '{file_path}' สำเร็จ"
-          )
-          return True
-      except Exception as error:
-          print(f"[CSV Exporter ล้มเหลว] {error}")
-          return False
+        moved_records.append(MoveRecord(channel_id=channel_id,sequence_id=sequence_id,old_building_id=guest.node_id,new_building_id=new_building_id,room_number=guest.room_no,))
 
-    def export_moves_to_csv(
-      self, move_report: MoveReport, file_path: str):
+        self.guest_manager.update_guest_node(channel_id, sequence_id, new_building_id)
 
-      try:
-          with open(file_path, mode="w", encoding="utf-8", newline="") as file:
-              writer = csv.writer(file)
+    return MoveReport(action_type="REMOVE_BUILDING",target_building_id=building_id,total_guests_before=total_guests_before,moved_records=moved_records,is_success=True,status_message=f"ลบอาคาร '{building_id}' สำเร็จ",)
+
+  def export_guests_to_csv(self, file_path: str):
+    sorted_guests = self.guest_manager.get_all_occupied_rooms_sorted()
+
+    try:
+        with open(file_path, mode="w", encoding="utf-8", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerow(["channel_id", "sequence_id", "node_id", "room_no"])
+            for guest in sorted_guests:
               writer.writerow(
-                  ["channel_id","sequence_id","old_node_id","new_node_id","room_no",]
-              )
-              for record in move_report.moved_records:
-                  writer.writerow(
-                      [record.channel_id,record.sequence_id,record.old_building_id,record.new_building_id,record.room_number,]
-                  )
-          print(f"[CSV Exporter] ส่งออกรายงานการย้าย {len(move_report.moved_records)} รายการ ไปยัง '{file_path}' สำเร็จ")
-          return True
-      except Exception as error:
-          print(f"[CSV Exporter ล้มเหลว] {error}")
-          return False
+                [guest.c, guest.s, guest.node_id, guest.room_no]
+                )
+        print(
+            f"[CSV Exporter] ส่งออกข้อมูลแขก {len(sorted_guests)} รายการ ไปยัง '{file_path}' สำเร็จ"
+        )
+        return True
+    except Exception as error:
+        print(f"[CSV Exporter ล้มเหลว] {error}")
+        return False
 
+  def export_moves_to_csv(
+    self, move_report: MoveReport, file_path: str):
 
+    try:
+        with open(file_path, mode="w", encoding="utf-8", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerow(
+                ["channel_id","sequence_id","old_node_id","new_node_id","room_no",]
+            )
+            for record in move_report.moved_records:
+                writer.writerow(
+                    [record.channel_id,record.sequence_id,record.old_building_id,record.new_building_id,record.room_number,]
+                )
+        print(f"[CSV Exporter] ส่งออกรายงานการย้าย {len(move_report.moved_records)} รายการ ไปยัง '{file_path}' สำเร็จ")
+        return True
+    except Exception as error:
+        print(f"[CSV Exporter ล้มเหลว] {error}")
+        return False
