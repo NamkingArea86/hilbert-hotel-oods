@@ -1,0 +1,10 @@
+channel_id,sequence_id,node_id,room_no
+2,1,Building_4,2
+1,2,Building_4,3
+2,5,Building_4,20
+10,1,Building_4,46
+10,2,Building_4,57
+10,3,Building_4,69
+10,4,Building_4,82
+10,5,Building_4,96
+5,10,Building_4,101
