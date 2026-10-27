@@ -1,5 +1,2 @@
 __pycache__/
-test_hash_ring.py
 mock_data_hotel_system.py
-guest_manager.py
-hash_ring.py

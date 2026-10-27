@@ -1,196 +1,195 @@
-# ==================================================
-# comparison.py — เปรียบเทียบ Consistent Hashing vs Hash Mod N
-# ==================================================
 import time
 import tracemalloc
-import numpy as np
 import csv
+import numpy as np
 from common import hash_to_64bit
 from hotel_system import HotelSystem
 from data_generator import (
     generate_guests,
-    TABLE_A_K,
-    TABLE_B_N,
-    TABLE_C_V,
+    TABLE_A_K, TABLE_A_N, TABLE_A_V,
+    TABLE_B_N, TABLE_B_K, TABLE_B_V,
+    TABLE_C_V, TABLE_C_N, TABLE_C_K,
     SALT_LIST
 )
 
-# ==================================================
-# Hash Mod N
-# ==================================================
-def hash_mod_N(c: int, s: int, node_list: list[str]) -> str:
+def hash_mod_N(c: int, s: int, node_list: list, salt: str = "") -> str:
     text = f"guest:{c}:{s}"
-    pos = hash_to_64bit(text)
+    pos = hash_to_64bit(text, salt=salt)
     idx = pos % len(node_list)
     return node_list[idx]
 
-def run_hash_mod_N(guests, initial_nodes):
-    tracemalloc.start()
-    t_start = time.perf_counter()
-    assign_initial = {}
-    for c, s in guests:
-        assign_initial[(c, s)] = hash_mod_N(c, s, initial_nodes)
+def run_mod_n_benchmark(guests, initial_nodes, salt):
+    # 1. วัดเวลา
+    t0 = time.perf_counter()
+    mod_assign = {g: hash_mod_N(g[0], g[1], initial_nodes, salt) for g in guests}
+    t_assign = time.perf_counter() - t0
+
+    # ค้นหา 1,000 ครั้ง
+    t0 = time.perf_counter()
+    sample_guests = guests[:1000] if len(guests) >= 1000 else guests
+    for g in sample_guests:
+        _ = mod_assign.get(g)
+    t_search_avg = (time.perf_counter() - t0) / len(sample_guests) if sample_guests else 0
+
+    # เพิ่ม 1 อาคาร จากสถานะเริ่มต้น
     nodes_add = initial_nodes + [f"Building_{len(initial_nodes)+1}"]
-    moved_add = 0
-    for c, s in guests:
-        old = assign_initial[(c, s)]
-        new = hash_mod_N(c, s, nodes_add)
-        if old != new:
-            moved_add += 1
+    t0 = time.perf_counter()
+    add_moved = sum(1 for g in guests if mod_assign[g] != hash_mod_N(g[0], g[1], nodes_add, salt))
+    t_add = time.perf_counter() - t0
+
+    # ลบ 1 อาคาร จากสถานะเริ่มต้น
     nodes_remove = initial_nodes[1:]
-    moved_remove = 0
-    for c, s in guests:
-        old = assign_initial[(c, s)]
-        new = hash_mod_N(c, s, nodes_remove)
-        if old != new:
-            moved_remove += 1
-    t_end = time.perf_counter()
-    _, peak_mem = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
-    return {
-        "time_sec": t_end - t_start,
-        "peak_mem_MiB": peak_mem / (1024 * 1024),
-        "add_moved_count": moved_add,
-        "add_moved_rate": moved_add / len(guests) if guests else 0,
-        "remove_moved_count": moved_remove,
-        "remove_moved_rate": moved_remove / len(guests) if guests else 0
-    }
+    t0 = time.perf_counter()
+    remove_moved = sum(1 for g in guests if mod_assign[g] != hash_mod_N(g[0], g[1], nodes_remove, salt))
+    t_remove = time.perf_counter() - t0
 
-# ==================================================
-# Consistent Hashing
-# ==================================================
-def run_consistent_hashing(guests, initial_nodes, virtual_per_node):
+    # 2. วัดหน่วยความจำแยกต่างหาก
     tracemalloc.start()
-    t_start = time.perf_counter()
-    system = HotelSystem(initial_nodes, virtual_per_node)
-    for c, s in guests:
-        if (c, s) not in system.guest_manager.guests:
-            first_node = system.hash_ring.get_building_for_guest(c, s)
-            system.guest_manager.add_guest(c, s, first_node)
-    new_node = f"Building_{len(initial_nodes)+1}"
-    add_report = system.add_building(new_node)
-    remove_node = initial_nodes[0]
-    remove_report = system.remove_building(remove_node)
-    t_end = time.perf_counter()
-    _, peak_mem = tracemalloc.get_traced_memory()
+    m0, p0 = tracemalloc.get_traced_memory()
+    mod_assign_mem = {g: hash_mod_N(g[0], g[1], initial_nodes, salt) for g in guests}
+    curr_mem, peak_mem = tracemalloc.get_traced_memory()
     tracemalloc.stop()
-    count = {}
-    for g in system.guest_manager.guests.values():
-        count[g.node_id] = count.get(g.node_id, 0) + 1
-    vals = list(count.values()) or [0]
-    mean = sum(vals) / len(vals)
-    var = sum((x - mean) ** 2 for x in vals) / len(vals)
-    cv = (var ** 0.5 / mean) if mean > 0 else 0
+
     return {
-        "time_sec": t_end - t_start,
-        "peak_mem_MiB": peak_mem / (1024 * 1024),
-        "add_moved_count": add_report.moved_count,
-        "add_moved_rate": (add_report.moved_rate_percentage or 0) / 100,
-        "remove_moved_count": remove_report.moved_count,
-        "remove_moved_rate": (remove_report.moved_rate_percentage or 0) / 100,
-        "load_stats": {
-            "mean": round(mean, 2),
-            "std": round(var ** 0.5, 2),
-            "cv": round(cv, 4)
-        }
+        "assign_time": t_assign,
+        "search_time_per_op": t_search_avg,
+        "add_time": t_add,
+        "add_moved_count": add_moved,
+        "add_moved_rate": (add_moved / len(guests) * 100) if guests else 0,
+        "remove_time": t_remove,
+        "remove_moved_count": remove_moved,
+        "remove_moved_rate": (remove_moved / len(guests) * 100) if guests else 0,
+        "curr_mem_mib": (curr_mem - m0) / (1024 * 1024),
+        "peak_mem_mib": peak_mem / (1024 * 1024)
     }
 
-def median(values):
-    return round(np.median(values), 6)
+def run_consistent_hashing_benchmark(guests, initial_nodes, V, salt):
+    # 1. วัดเวลา
+    t0 = time.perf_counter()
+    system = HotelSystem(initial_nodes, V, salt=salt)
+    t_ring_init = time.perf_counter() - t0
 
-# ==================================================
-# รันทดลองทั้งหมด
-# ==================================================
+    t0 = time.perf_counter()
+    for c, s in guests:
+        system.add_guest(c, s)
+    t_assign = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    sample_guests = guests[:1000] if len(guests) >= 1000 else guests
+    for c, s in sample_guests:
+        _ = system.lookup_by_guest(c, s)
+    t_search_avg = (time.perf_counter() - t0) / len(sample_guests) if sample_guests else 0
+
+    t0 = time.perf_counter()
+    _ = system.guest_manager.get_all_occupied_rooms_sorted()
+    t_sort = time.perf_counter() - t0
+
+    # เพิ่ม 1 อาคาร
+    t0 = time.perf_counter()
+    add_rep = system.add_building(f"Building_{len(initial_nodes)+1}")
+    t_add = time.perf_counter() - t0
+
+    # สร้างระบบใหม่เพื่อลบ 1 อาคารจากสถานะเริ่มต้น
+    sys_remove = HotelSystem(initial_nodes, V, salt=salt)
+    for c, s in guests:
+        sys_remove.add_guest(c, s)
+    t0 = time.perf_counter()
+    remove_rep = sys_remove.remove_building(initial_nodes[0])
+    t_remove = time.perf_counter() - t0
+
+    load_stats = system.get_load_stats()
+
+    # 2. วัดหน่วยความจำแยกต่างหาก
+    tracemalloc.start()
+    m0, p0 = tracemalloc.get_traced_memory()
+    sys_mem = HotelSystem(initial_nodes, V, salt=salt)
+    for c, s in guests:
+        sys_mem.add_guest(c, s)
+    curr_mem, peak_mem = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    return {
+        "ring_init_time": t_ring_init,
+        "assign_time": t_assign,
+        "search_time_per_op": t_search_avg,
+        "sort_time": t_sort,
+        "add_time": t_add,
+        "add_moved_count": add_rep.moved_count,
+        "add_moved_rate": add_rep.moved_rate_percentage or 0,
+        "remove_time": t_remove,
+        "remove_moved_count": remove_rep.moved_count,
+        "remove_moved_rate": remove_rep.moved_rate_percentage or 0,
+        "cv": load_stats["cv"],
+        "curr_mem_mib": (curr_mem - m0) / (1024 * 1024),
+        "peak_mem_mib": peak_mem / (1024 * 1024)
+    }
+
 def run_all_experiments():
-    results = []
+    raw_results = []
 
-    # === ตาราง A ===
-    print("=== กำลังทดลอง: ตาราง A ===")
-    N_fixed = 8
-    V_fixed = 8
-    nodes_A = [f"B{i+1}" for i in range(N_fixed)]
+    print("=== กำลังทดลอง Table A (ขนาดข้อมูล K) ===")
+    nodes_a = [f"B_{i+1}" for i in range(TABLE_A_N)]
     for K in TABLE_A_K:
-        cons_time, cons_add = [], []
-        mod_time, mod_add = [], []
         for salt in SALT_LIST:
             guests = generate_guests(K, salt)
-            r_mod = run_hash_mod_N(guests, nodes_A)
-            r_cons = run_consistent_hashing(guests, nodes_A, V_fixed)
-            mod_time.append(r_mod["time_sec"])
-            mod_add.append(r_mod["add_moved_rate"] * 100)
-            cons_time.append(r_cons["time_sec"])
-            cons_add.append(r_cons["add_moved_rate"] * 100)
-        results.append({
-            "group": "A", "K": K, "N": N_fixed, "V": V_fixed,
-            "cons_time": median(cons_time),
-            "cons_rate_add": median(cons_add),
-            "mod_time": median(mod_time),
-            "mod_rate_add": median(mod_add)
-        })
-        print(f"  K={K} ✅")
+            res_ch = run_consistent_hashing_benchmark(guests, nodes_a, TABLE_A_V, salt)
+            res_mod = run_mod_n_benchmark(guests, nodes_a, salt)
+            raw_results.append({
+                "group": "A", "K": K, "N": TABLE_A_N, "V": TABLE_A_V, "salt": salt,
+                "ch_assign_time": res_ch["assign_time"], "mod_assign_time": res_mod["assign_time"],
+                "ch_search_time": res_ch["search_time_per_op"], "mod_search_time": res_mod["search_time_per_op"],
+                "ch_sort_time": res_ch["sort_time"],
+                "ch_add_rate": res_ch["add_moved_rate"], "mod_add_rate": res_mod["add_moved_rate"],
+                "ch_peak_mem": res_ch["peak_mem_mib"], "mod_peak_mem": res_mod["peak_mem_mib"],
+                "ch_cv": res_ch["cv"]
+            })
+        print(f"  K={K} เสร็จสมบูรณ์")
 
-    # === ตาราง B ===
-    print("=== กำลังทดลอง: ตาราง B ===")
-    K_fixed = 10_000
-    V_fixed = 8
+    print("=== กำลังทดลอง Table B (จำนวนอาคาร N) ===")
     for N in TABLE_B_N:
-        nodes_B = [f"B{i+1}" for i in range(N)]
-        mod_add, mod_remove = [], []
-        cons_add, cons_remove = [], []
+        nodes_b = [f"B_{i+1}" for i in range(N)]
         for salt in SALT_LIST:
-            guests = generate_guests(K_fixed, salt)
-            r_mod = run_hash_mod_N(guests, nodes_B)
-            r_cons = run_consistent_hashing(guests, nodes_B, V_fixed)
-            mod_add.append(r_mod["add_moved_rate"] * 100)
-            mod_remove.append(r_mod["remove_moved_rate"] * 100)
-            cons_add.append(r_cons["add_moved_rate"] * 100)
-            cons_remove.append(r_cons["remove_moved_rate"] * 100)
-        results.append({
-            "group": "B", "K": K_fixed, "N": N, "V": V_fixed,
-            "cons_rate_add": median(cons_add),
-            "cons_rate_remove": median(cons_remove),
-            "mod_rate_add": median(mod_add),
-            "mod_rate_remove": median(mod_remove)
-        })
-        print(f"  N={N} ✅")
+            guests = generate_guests(TABLE_B_K, salt)
+            res_ch = run_consistent_hashing_benchmark(guests, nodes_b, TABLE_B_V, salt)
+            res_mod = run_mod_n_benchmark(guests, nodes_b, salt)
+            raw_results.append({
+                "group": "B", "K": TABLE_B_K, "N": N, "V": TABLE_B_V, "salt": salt,
+                "ch_add_rate": res_ch["add_moved_rate"], "mod_add_rate": res_mod["add_moved_rate"],
+                "ch_remove_rate": res_ch["remove_moved_rate"], "mod_remove_rate": res_mod["remove_moved_rate"],
+                "ch_add_time": res_ch["add_time"], "mod_add_time": res_mod["add_time"],
+                "ch_peak_mem": res_ch["peak_mem_mib"], "mod_peak_mem": res_mod["peak_mem_mib"],
+                "ch_cv": res_ch["cv"]
+            })
+        print(f"  N={N} เสร็จสมบูรณ์")
 
-    # === ตาราง C ===
-    print("=== กำลังทดลอง: ตาราง C ===")
-    K_fixed = 10_000
-    N_fixed = 8
-    nodes_C = [f"B{i+1}" for i in range(N_fixed)]
+    print("=== กำลังทดลอง Table C ( virtual node V) ===")
+    nodes_c = [f"B_{i+1}" for i in range(TABLE_C_N)]
     for V in TABLE_C_V:
-        cons_cv, cons_mem = [], []
         for salt in SALT_LIST:
-            guests = generate_guests(K_fixed, salt)
-            r_cons = run_consistent_hashing(guests, nodes_C, V)
-            cons_cv.append(r_cons["load_stats"]["cv"])
-            cons_mem.append(r_cons["peak_mem_MiB"])
-        results.append({
-            "group": "C", "K": K_fixed, "N": N_fixed, "V": V,
-            "cv": median(cons_cv),
-            "mem_MiB": median(cons_mem)
-        })
-        print(f"  V={V} ✅")
+            guests = generate_guests(TABLE_C_K, salt)
+            res_ch = run_consistent_hashing_benchmark(guests, nodes_c, V, salt)
+            res_mod = run_mod_n_benchmark(guests, nodes_c, salt)
+            raw_results.append({
+                "group": "C", "K": TABLE_C_K, "N": TABLE_C_N, "V": V, "salt": salt,
+                "ch_cv": res_ch["cv"],
+                "ch_curr_mem": res_ch["curr_mem_mib"], "ch_peak_mem": res_ch["peak_mem_mib"],
+                "ch_add_rate": res_ch["add_moved_rate"], "mod_add_rate": res_mod["add_moved_rate"]
+            })
+        print(f"  V={V} เสร็จสมบูรณ์")
 
-    # === บันทึกผล ===
-    fieldnames = [
-        "group", "K", "N", "V",
-        "cons_time", "cons_rate_add", "cons_rate_remove",
-        "mod_time", "mod_rate_add", "mod_rate_remove",
-        "cv", "mem_MiB"
-    ]
-    with open("experiment_results.csv", "w", newline="", encoding="utf-8") as f:
+    # ส่งออก CSV
+    fieldnames = []
+    for row in raw_results:
+        for k in row.keys():
+            if k not in fieldnames:
+                fieldnames.append(k)
+
+    with open("experiment_results.csv", mode="w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(results)
-    print("\n✅ บันทึกผลที่ experiment_results.csv")
-    return results
+        writer.writerows(raw_results)
+
+    print("✅ บันทึกผลการทดลองทั้งหมดลงไฟล์ experiment_results.csv สำเร็จ")
 
 if __name__ == "__main__":
-    print("=" * 50)
-    print("  โครงงาน Distributed Hilbert Hotel")
-    print("  เปรียบเทียบ Consistent Hashing vs Hash Mod N")
-    print("=" * 50)
-    print()
     run_all_experiments()

@@ -1,32 +1,29 @@
-# ==================================================
-# main.py — ส่วนติดต่อผู้ใช้ / เมนูหลัก
-# ==================================================
 import sys
 from hotel_system import HotelSystem
 
 def print_menu():
-    print("\n" + "="*50)
-    print("  🏨 ระบบโรงแรมกระจาย Distributed Hilbert Hotel")
-    print("="*50)
+    print("\n" + "="*55)
+    print("  🏨 ระบบโรงแรมอนันต์แบบกระจาย Distributed Hilbert Hotel")
+    print("="*55)
     print("  1. เพิ่มแขกคนเดียว")
     print("  2. เพิ่มแขกเป็นกลุ่ม")
     print("  3. ลบแขก")
     print("  4. เพิ่มอาคาร")
     print("  5. ลบอาคาร")
-    print("  6. ค้นหาข้อมูลแขก")
+    print("  6. ค้นหาข้อมูลแขก (สองทาง)")
     print("  7. แสดงรายการห้องที่มีผู้พัก")
     print("  8. แสดงสถิติความสมดุลของโหลด")
-    print("  9. ส่งออกข้อมูลเป็น CSV")
-    print(" 10. เปรียบเทียบ Consistent Hashing vs Hash Mod N")
+    print("  9. ส่งออกข้อมูลเป็น CSV (แขก / รายการย้ายล่าสุด)")
+    print(" 10. รันชุดการทดลองและเปรียบเทียบประสิทธิภาพ")
     print("  0. ออกจากโปรแกรม")
-    print("="*50)
+    print("="*55)
 
 def get_valid_int(prompt, min_val=None, max_val=None):
     while True:
         try:
             val = input(prompt).strip()
             if val == "":
-                print("❌ กรุณาใส่ค่า")
+                print("❌ กรุณาป้อนค่า")
                 continue
             num = int(val)
             if min_val is not None and num < min_val:
@@ -37,85 +34,78 @@ def get_valid_int(prompt, min_val=None, max_val=None):
                 continue
             return num
         except ValueError:
-            print("❌ ต้องป้อนจำนวนเต็มเท่านั้น")
+            print("❌ กรุณาป้อนจำนวนเต็มเท่านั้น")
 
 def main():
-    print("กำลังเริ่มระบบ...")
-    
-    N = get_valid_int("จำนวนอาคารเริ่มต้น: ", min_val=1)
-    V = get_valid_int("จำนวนโหนดเสมือนต่ออาคาร (V): ", min_val=1)
+    print("กำลังเริ่มต้นระบบ...")
+    N = get_valid_int("จำนวนอาคารเริ่มต้น (N >= 1): ", min_val=1)
+    V = get_valid_int("จำนวนโหนดเสมือนต่ออาคาร (V >= 1): ", min_val=1)
     
     building_names = [f"Building_{i+1}" for i in range(N)]
     system = HotelSystem(building_names, V)
-    print(f"✅ ระบบพร้อมใช้งาน — มี {N} อาคาร, V = {V}")
+    last_move_report = None
+
+    # ถามการสร้างแขกเริ่มต้นหลายช่องทาง
+    setup_guests = input("ต้องการสร้างแขกเริ่มต้นทันทีหรือไม่? (y/n): ").strip().lower()
+    if setup_guests == 'y':
+        channels = get_valid_int("จำนวนช่องทาง (C >= 1): ", min_val=1)
+        per_channel = get_valid_int("จำนวนแขกต่อช่องทาง: ", min_val=1)
+        for c in range(1, channels + 1):
+            system.add_guest_group(c, 1, per_channel)
+        print(f"✅ เพิ่มแขกเริ่มต้นสำเร็จ รวม {system.guest_manager.total_guests} คน")
 
     while True:
         print_menu()
-        choice = get_valid_int("เลือกทำงาน: ", min_val=0, max_val=10)
+        choice = get_valid_int("เลือกเมนู (0-10): ", min_val=0, max_val=10)
 
         if choice == 0:
             print("👋 ออกจากโปรแกรม...")
             break
 
         elif choice == 1:
-            # เพิ่มแขกคนเดียว
             print("\n--- เพิ่มแขกคนเดียว ---")
-            c = get_valid_int("รหัสช่องทาง (c): ", min_val=1)
-            s = get_valid_int("ลำดับภายในช่องทาง (s): ", min_val=1)
-            
-            if (c, s) in system.guest_manager.guests:
-                print(f"❌ มีแขก (c={c}, s={s}) ในระบบแล้ว")
-                continue
-            
-            building_id = system.hash_ring.get_building_for_guest(c, s)
+            c = get_valid_int("รหัสช่องทาง (c >= 1): ", min_val=1)
+            s = get_valid_int("ลำดับภายในช่องทาง (s >= 1): ", min_val=1)
             try:
-                guest = system.guest_manager.add_guest(c, s, building_id)
+                guest = system.add_guest(c, s)
                 print(f"✅ เพิ่มสำเร็จ → อาคาร: {guest.node_id}, ห้อง: {guest.room_no}")
             except ValueError as e:
                 print(f"❌ {e}")
 
         elif choice == 2:
-            # เพิ่มแขกเป็นกลุ่ม — ใช้เมธอด add_guest_group ที่มีอยู่
             print("\n--- เพิ่มแขกเป็นกลุ่ม ---")
-            c = get_valid_int("รหัสช่องทาง (c): ", min_val=1)
-            s_start = get_valid_int("ลำดับเริ่มต้น (s): ", min_val=1)
-            count = get_valid_int("จำนวน: ", min_val=1)
-            
-            get_node_func = lambda c_val, s_val: system.hash_ring.get_building_for_guest(c_val, s_val)
+            c = get_valid_int("รหัสช่องทาง (c >= 1): ", min_val=1)
+            s_start = get_valid_int("ลำดับเริ่มต้น (s_start >= 1): ", min_val=1)
+            count = get_valid_int("จำนวนแขก (>= 0): ", min_val=0) # count=0 ได้
             try:
-                added = system.guest_manager.add_guest_group(c, s_start, count, get_node_func)
+                added = system.add_guest_group(c, s_start, count)
                 print(f"✅ เพิ่มสำเร็จ {len(added)} คน")
             except ValueError as e:
                 print(f"❌ {e}")
 
         elif choice == 3:
-            # ลบแขก
             print("\n--- ลบแขก ---")
-            c = get_valid_int("รหัสช่องทาง (c): ", min_val=1)
-            s = get_valid_int("ลำดับภายในช่องทาง (s): ", min_val=1)
-            
+            c = get_valid_int("รหัสช่องทาง (c >= 1): ", min_val=1)
+            s = get_valid_int("ลำดับภายในช่องทาง (s >= 1): ", min_val=1)
             try:
-                system.guest_manager.remove_guest(c, s)
-                print(f"✅ ลบ (c={c}, s={s}) สำเร็จ")
+                guest = system.remove_guest(c, s)
+                print(f"✅ ลบแขก (c={c}, s={s}) จากห้อง {guest.node_id}-{guest.room_no} สำเร็จ")
             except ValueError as e:
                 print(f"❌ {e}")
 
         elif choice == 4:
-            # เพิ่มอาคาร
             print("\n--- เพิ่มอาคาร ---")
             name = input("ชื่อ/รหัสอาคารใหม่: ").strip()
-            report = system.add_building(name)
-            report.print_report()
+            last_move_report = system.add_building(name)
+            last_move_report.print_report()
 
         elif choice == 5:
-            # ลบอาคาร
             print("\n--- ลบอาคาร ---")
             name = input("ชื่อ/รหัสอาคารที่จะลบ: ").strip()
-            report = system.remove_building(name)
-            report.print_report()
+            last_move_report = system.remove_building(name)
+            last_move_report.print_report()
 
         elif choice == 6:
-            # ค้นหา
             print("\n--- ค้นหาข้อมูล ---")
             print("  1. ค้นด้วยรหัสแขก (c, s)")
             print("  2. ค้นด้วยที่อยู่ห้อง (อาคาร, ห้อง)")
@@ -124,88 +114,82 @@ def main():
             if sub_choice == 1:
                 c = get_valid_int("รหัสช่องทาง (c): ", min_val=1)
                 s = get_valid_int("ลำดับ (s): ", min_val=1)
-                guest = system.guest_manager.guests.get((c, s))
-                if guest:
-                    print(f"✅ พบ → อาคาร: {guest.node_id}, ห้อง: {guest.room_no}")
+                res = system.lookup_by_guest(c, s)
+                if res:
+                    print(f"✅ พบ → อาคาร: {res[0]}, ห้อง: {res[1]}")
                 else:
-                    print("❌ ไม่พบข้อมูล")
+                    print("❌ ไม่พบข้อมูลแขก")
             else:
                 node_id = input("รหัสอาคาร: ").strip()
                 room_no = get_valid_int("หมายเลขห้อง: ", min_val=1)
-                found = None
-                for guest in system.guest_manager.guests.values():
-                    if guest.node_id == node_id and guest.room_no == room_no:
-                        found = guest
-                        break
-                if found:
-                    print(f"✅ พบ → แขก (c={found.c}, s={found.s})")
+                res = system.lookup_by_room(node_id, room_no) # O(1)ผ่านดัชนี
+                if res:
+                    print(f"✅ พบ → แขกรหัส (c={res[0]}, s={res[1]})")
                 else:
-                    print("❌ ไม่พบข้อมูล")
+                    print("❌ ไม่พบข้อมูลผู้เข้าพักในห้องนี้")
 
         elif choice == 7:
-            # แสดงรายการห้อง
             print("\n--- รายการห้องที่มีผู้พัก ---")
             listing = system.guest_manager.get_all_occupied_rooms_sorted()
-            if not listing:
+            total = len(listing)
+            if total == 0:
                 print("ยังไม่มีแขกในระบบ")
                 continue
+
+            max_show = 50
             current_building = None
-            for guest in listing:
+            for idx, guest in enumerate(listing[:max_show]):
                 if guest.node_id != current_building:
                     current_building = guest.node_id
-                    print(f"\n  {current_building}:")
+                    print(f"\n  🏢 อาคาร {current_building}:")
                 print(f"    ห้อง {guest.room_no:>6} → แขก (c={guest.c}, s={guest.s})")
 
+            if total > max_show:
+                print(f"\n... แสดงเพียง {max_show} รายการแรก จากทั้งหมด {total} รายการ (ส่งออก CSV เพื่อดูทั้งหมด)")
+
         elif choice == 8:
-            # สถิติ
             print("\n--- สถิติความสมดุลของโหลด ---")
-            total_guests = system.guest_manager.total_guests
-            buildings = system.hash_ring.buildings
-            per_node = {}
-            for b in buildings:
-                cnt = sum(1 for g in system.guest_manager.guests.values() if g.node_id == b)
-                per_node[b] = cnt
-            
-            if total_guests == 0:
-                print(f"  จำนวนอาคารทั้งหมด: {len(buildings)}")
-                print("  ยังไม่มีแขกในระบบ")
-                continue
-            
-            vals = list(per_node.values())
-            mean = total_guests / len(buildings)
-            variance = sum((x - mean) ** 2 for x in vals) / len(vals)
-            std = variance ** 0.5
-            cv = std / mean if mean > 0 else 0
-            
-            print(f"  จำนวนอาคารทั้งหมด: {len(buildings)}")
-            print(f"  จำนวนแขกทั้งหมด: {total_guests}")
-            print(f"  แขกต่ออาคาร: เฉลี่ย {mean:.2f} | สูงสุด {max(vals)} | ต่ำสุด {min(vals)}")
-            print(f"  ส่วนเบี่ยงเบนมาตรฐาน: {std:.4f}")
-            print(f"  ค่าสัมประสิทธิ์การแปรผัน (CV): {cv:.4f}")
+            stats = system.get_load_stats()
+            print(f"  จำนวนอาคารทั้งหมด (N): {stats['num_buildings']}")
+            print(f"  จำนวนแขกทั้งหมด (K): {stats['total_guests']}")
             print("  รายอาคาร:")
-            for b in sorted(per_node.keys()):
-                print(f"    {b}: {per_node[b]} คน")
+            for b, count in stats['per_node'].items():
+                print(f"    - {b}: {count} คน")
+
+            if stats["is_zero_k"]:
+                print("  สถิติ: เฉลี่ย 0 | สูงสุด 0 | ต่ำสุด 0 | ส่วนเบี่ยงเบนมาตรฐาน 0.0000")
+                print("  ค่าสัมประสิทธิ์การแปรผัน (CV): N/A (ไม่มีแขกในระบบ K = 0)")
+            else:
+                print(f"  แขกต่ออาคาร: เฉลี่ย {stats['mean']:.2f} | สูงสุด {stats['max']} | ต่ำสุด {stats['min']}")
+                print(f"  ส่วนเบี่ยงเบนมาตรฐาน (Std): {stats['std']:.4f}")
+                print(f"  ค่าสัมประสิทธิ์การแปรผัน (CV): {stats['cv']:.4f}")
 
         elif choice == 9:
-            # ส่งออก CSV
-            filename = input("ชื่อไฟล์ (กด Enter ใช้ชื่อเริ่มต้น): ").strip()
-            if not filename:
-                filename = "guest_list.csv"
-            ok = system.export_guests_to_csv(filename)
-            if ok:
-                print(f"✅ ส่งออกสำเร็จ → {filename}")
+            print("\n--- ส่งออก CSV ---")
+            print("  1. ส่งออกรายการแขกปัจจุบัน")
+            print("  2. ส่งออกรายการย้ายแขกจากคำสั่งล่าสุด")
+            sub_c = get_valid_int("เลือก: ", min_val=1, max_val=2)
+            
+            if sub_c == 1:
+                filename = input("ชื่อไฟล์ [guest_list.csv]: ").strip() or "guest_list.csv"
+                system.export_guests_to_csv(filename)
             else:
-                print(f"❌ ส่งออกไม่สำเร็จ")
+                if not last_move_report or not last_move_report.moved_records:
+                    print("⚠️ ไม่มีรายงานการย้ายล่าสุดที่มีแขกย้าย")
+                else:
+                    filename = input("ชื่อไฟล์ [move_report.csv]: ").strip() or "move_report.csv"
+                    system.export_moves_to_csv(last_move_report, filename)
 
         elif choice == 10:
-            # เปรียบเทียบ
             print("\n--- เปรียบเทียบประสิทธิภาพ ---")
-            print("กำลังรันทดลอง... อาจใช้เวลาสักครู่")
+            print("กำลังรันทดลองการเปรียบเทียบและพล็อตกราฟ... อาจใช้เวลาสักครู่")
             from comparison import run_all_experiments
+            from plot_results import generate_all_plots
             run_all_experiments()
-            print("✅ เสร็จสิ้น! ดูผลที่ experiment_results.csv")
+            generate_all_plots()
+            print("✅ ดำเนินการทดลองและสร้างรูปภาพกราฟทั้ง 3 ภาพ เรียบร้อยแล้ว!")
 
-        input("\nกด Enter เพื่อดำเนินต่อไป...")
+        input("\nกด Enter เพื่อดำเนินการต่อ...")
 
 if __name__ == "__main__":
     try:
